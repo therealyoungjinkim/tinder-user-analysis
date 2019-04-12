@@ -1,4 +1,4 @@
-#tinder-user-analysis
+# tinder-user-analysis
 
 idea:
 get the demographics and sentiment analysis of tinder users the app tries to set me up with
