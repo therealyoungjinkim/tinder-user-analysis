@@ -1,0 +1,277 @@
+---
+title: "analysis"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+## Idea
+
+The idea of this project was to collect data from dating app Tinder to practice scraping, data cleaning, and basic language processing in the form of sentiment analysis.
+
+## Workflow
+
+First data was scraped off Tinder via the desktop app. The settings were set to find females aged 18-30 in a 5-mile radius near me. A python script was made to open up a user's information, scrape the javascript code into excel, and then 'like' the user to minimize repeats (and for my benefit).
+
+Then data was cleaned in a different Rmd file, mostly to remove all the javascript code and fix up the encoding. Due to encoding and OS issues, emojis were removed because they seem like they could be their own project and were a hassle to try and get going. We end up with 652 names, ages, and biographies before Tinder claims 'there's no one new' in my area, which is apparently in order to stop people such as myself from mining data.
+
+Next we analyze some statistics and apply some basic language processing in the form of sentiment analysis.
+
+## Analysis 
+
+Load `tidytext` and `wordcloud` to do our text mining and sentiment analysis, and `tidyverse` for management.
+```{r}
+library(tidytext)
+library(wordcloud2)
+library(tidyverse)
+dat <- read.csv("cleantinder.csv", stringsAsFactors = F)
+```
+
+Check the distribution of ages in our users: 
+
+```{r}
+# age histogram
+ggplot(dat, aes(x = dat$age)) +
+  geom_bar() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Age", y = "Count") + 
+  scale_x_continuous(breaks=18:30, labels=18:30) +
+  stat_bin(binwidth=1, geom="text", aes(label =..count..), colour="white", vjust =1) +
+  ggtitle("Age Distribution")
+```
+
+Since I am 24, I am assuming that the app attempts to match me with partners in my age, despite setting my preferred age range to be 18-30. I am also assuming that because generally younger women seem to seek out older men, more younger women have included 24-year-olds such as myself in their search preferences, and vice-versa for the older women.
+
+Given that I was only able to scrape around 650 observations, it probably would be better to next time narrow the age range even further so I can get more observations per age, as the measly 10 and 13 for 29 and 30-year-olds respectively is rather low.
+
+Now lets check how many users left blank bios (or bios with just emojis):
+
+```{r}
+# proportion of age leaving blank bio:
+blankprop <- as.data.frame(table(dat[dat$info=="",]$age)/table(dat$age))
+ggplot(blankprop, aes(x = blankprop[,1], y = blankprop[,2])) +
+  geom_bar(stat="identity") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Age", y = "Proportion of Blank Bio") +
+  stat_identity(geom="text", aes(label = paste0(round(blankprop[,2],3)*100,"%")), colour = "white", vjust =1) +
+  ggtitle("Blank Bio's")
+```
+
+Seems like there is quite possibly a trend where being closer to 20-years old makes you more likely to write a description.
+
+And just to better illustrate the proportions given our smaller tails, plot the proportions:
+
+```{r}
+# age plot + prop plot
+ggplot(dat, aes(x = dat$age, fill=(dat$infolen>0))) +
+  geom_bar() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Age", y = "Count") +
+  scale_fill_discrete(name="Bio",
+                      labels = c("Empty","Not Empty")) +
+  scale_x_continuous(breaks=min(dat$age):max(dat$age), labels=min(dat$age):max(dat$age)) +
+  annotate("text", x = 18:30, y = as.data.frame(table(dat$age))[,2], label = paste0(table(dat$age[dat$infolen>0])," / ",table(dat$age)), vjust=1, colour = "black") +
+  ggtitle("Proportion of Blank Bio's")
+```
+
+And lets check the average length of a bio by age (in non-blank bios):
+
+```{r}
+# info length
+infolengthdat <- dat[dat$infolen>0,] %>% 
+  select(age, infolen) %>% 
+  group_by(age) %>% 
+  summarize(len=mean(infolen))
+ggplot(infolengthdat, aes(x = infolengthdat$age, y = infolengthdat$len)) +
+  geom_histogram(stat="identity") +
+  scale_x_continuous(breaks=min(infolengthdat$age):max(infolengthdat$age), labels=min(infolengthdat$age):max(infolengthdat$age)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Age", y = "Avg Bio Length") +
+  stat_identity(geom="text", aes(label = round(infolengthdat$len)), colour ="white", vjust =1)
+```
+
+There seems to be a general trend where users will write more as they get older.
+
+Now I decide to check for the inclusion of a very controversial topic in contemporary dating: height
+
+```{r}
+# height distribution
+heightdat <- dat[!is.na(dat$inclheight),] %>%
+  separate(inclheight, c("feet","inches"), sep = "'") %>% 
+  mutate(height=12*as.numeric(feet)+as.numeric(inches))
+ggplot(heightdat, aes(x = heightdat$height)) +
+  geom_bar() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  scale_x_continuous(breaks=min(heightdat$height):max(heightdat$height), labels=min(heightdat$height):max(heightdat$height)) +
+  labs(x = "Height (inches)", y = "Count") +
+  stat_count(geom="text", aes(label = ..count..), colour ="white", vjust =1) +
+  ggtitle("Mentions of Height")
+```
+
+In the 650 profiles, only 50 listed a height using the "x'x" format. Given the relatively small amount, I checked each individual bio and found that 49 of 50 of the observations were the heights of the girls themselves, and only 1 of 50 was a height listed as a requirement for any future partners. Given the distribution of heights, I am lead to assume that women are more likely to list their heights if they are 'abnormal.'
+
+Another tihng I quite frequently see are users who will list their horoscope signs. Though many will use an emoji, of which I removed all of, I decide to check how many users wrote it out.
+
+```{r}
+# horoscope frequency
+hordata <- dat[!is.na(dat$horoscope),]
+ggplot(hordata, aes(x = hordata$horoscope)) +
+  geom_bar() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Horoscope", y = "Count") +
+  stat_count(geom="text", aes(label = ..count..), colour = "white", vjust =1) +
+  ggtitle("Mentions of Astrology Signs")
+```
+
+I was expecting a slightly more even distribution, but as there were not many counts, I am kinda just writing this off as scorpios being scorpios. I don't know what that means but I bet someone else does.
+
+Next I want to see the most common names just out of curiosity.
+
+```{r}
+# most common names:
+head(sort(table(dat[,1]), decreasing = T))
+```
+
+The actual rankings of these names in the 90s are as follows: 4, 69, 3, 56, 25, 52. Dark horse Katie all the way up at second place.
+
+## Language Processing
+
+First I tokenize the words and remove stopwords:
+
+```{r}
+#tokenize our guys
+tinder <- as.data.frame(cbind(age=dat$age,text=dat$info))
+
+#easier to use ngrams with n=1 than restructure our data lol
+tinderwordsbyage <- tinder %>% 
+  unnest_tokens(word, text, token = "ngrams", n=1) %>% 
+  count(age, word, sort = T)
+
+tinderwords <- tinder %>% 
+  unnest_tokens(word, text, token = "ngrams", n=1) %>% 
+  count(word, sort = T)
+
+#remove stopwords
+tinderwordsbyage <- tinderwordsbyage %>% 
+  filter(!word %in% stop_words$word)
+tinderwords <- tinderwords %>% 
+  filter(!word %in% stop_words$word)
+```
+
+We go from 2517 unique words to 2911 upon removing stopwords. I imagine a lot of the words of the 2911 are mispellings, gibberish, or things not intended to be prose (usernames and the such), so I will consider 2911 a very optimistic upper boundary.
+
+Then I find the top 5 words per age.
+
+```{r}
+#lets do top 3 words per age
+tindertopbyage <- tinderwordsbyage %>% 
+  group_by(age) %>% 
+  slice(seq_len(5)) %>% 
+  ungroup() %>% 
+  arrange(age, desc(n)) %>% 
+  mutate(row = row_number())
+
+tindertopbyage %>% 
+  ggplot(aes(row, n, fill=age))+
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y ="Word Count") + 
+  facet_wrap(~age, scales="free" )+
+  scale_x_continuous(
+    breaks = tindertopbyage$row,
+    labels = tindertopbyage$word)+
+  coord_flip()
+```
+
+This information is not too useful on the age groups with sparser data. For 29-year-olds in particular, a word needed to show up twice to get into the top 5; even "5'2"" and "2"" make the cut thanks to sorting rows alphabetically. Another point of interest is the word "clap" in the 18-year-old category. One user contributed all 9 instances of the word "clap."
+
+Next look at bigrams. Decide not to do it by age so there's more to work with.
+
+```{r}
+# bigrams
+tinderbigrams <- tinder %>% 
+  unnest_tokens(bigram, text, token = "ngrams", n=2)
+
+count(tinderbigrams, bigram, sort=T)
+
+# w/o stopwords
+tinderbigrams_sep <- tinderbigrams %>% 
+  separate(bigram, c("word1","word2"), sep =" ")
+
+tinderbigrams_filt <- tinderbigrams_sep %>% 
+  filter(!word1 %in% stop_words$word) %>% 
+  filter(!word2 %in% stop_words$word)
+
+count(tinderbigrams_filt, word1, word2, sort = T)[1:20,]
+```
+
+This is slightly more interesting. We can see the importance of locale and user interests in this list. Again, all instances of "clap clap" are due to the same person as earlier. It's the wild west out here.
+
+Decide to look into trigrams just in case:
+
+```{r}
+# trigrams
+tindertrigrams <- tinder %>% 
+  unnest_tokens(trigram, text, token ="ngrams", n =3)
+
+count(tindertrigrams, trigram, sort =T)
+
+# w/o stopwords
+tindertrigrams_sep <- tindertrigrams %>% 
+  separate(trigram, c("word1","word2", "word3"), sep =" ")
+
+tindertrigrams_filt <- tindertrigrams_sep %>% 
+  filter(!word1 %in% stop_words$word) %>% 
+  filter(!word2 %in% stop_words$word) %>% 
+  filter(!word3 %in% stop_words$word)
+
+count(tindertrigrams_filt, word1, word2, word3, sort = T)[1:10,]
+```
+
+This data is rather sad. Removing the ever-so-frequent "clap"s we see the only three-word phrase that shows up more than once is "play video games." Also rather unfortunate is user with instagram handle _lunapuer who inadvertently outs herself.
+
+And just in case you were really curious about our mad clapper:
+
+```{r}
+# the user who loves clapping
+which(grepl("clap clap clap", dat[,3]))
+dat[427,3]
+```
+
+Now run a sentiment analysis by age using the Bing measure:
+
+```{r}
+# sentiment analysis by age group
+tindersent <- tinderwordsbyage %>%
+  inner_join(get_sentiments("bing")) %>% 
+  count(age, sentiment) %>% 
+  spread(sentiment, nn, fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+ggplot(tindersent, aes(age, sentiment)) + 
+  geom_bar(stat="identity") +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()) +
+  labs(x = "Age", y = "Sentiment") + 
+  stat_identity(geom="text", aes(label = sentiment), colour = "black", )
+  
+```
+
+We see that users aged 24 are rather depressing compared to their peers. I had read around that Tinder may be curating some of your choices to feed you users of similar "hotness" or usage style. If that is the case, then I guess this is pretty accurate. If we sum it up over the ages, we get +3, which means that everybody else is overcompensating for the Debbie-Downer 24-year-olds.
+
+Just to top it off, a wordcloud because people love wordclouds.
+
+Wordcloud of the most popular words:
+
+```{r}
+#word cloud of total words not including stopwords
+wordcloud2(tinderwords[tinderwords$n>5,] )
+```
+
