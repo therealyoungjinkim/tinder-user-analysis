@@ -3,6 +3,21 @@ import pyautogui as auto
 xpos = [111, 988, 1011, 355, 249, 217, 195, 526]
 ypos = [16, 703, 967, 1058, 477, 558, 1058, 1060]
 
+# taskbar order:
+# open tinder maximized - first app in taskbar - on top
+# open excel maximized - second app in taskbar - active cell on origin
+# open code inspector maximized - full length code view, no console or style menus
+
+# pos 0 - focus on tinder
+# pos 1 - right click name
+# pos 2 - inspect element
+# pos 3 - excel
+# pos 4 - click age
+# pos 5 - click info
+# pos 6 - description element
+# pos 7 - open tinder
+# pos 8 - open inspection
+
 i = 0
 n = 400
 
